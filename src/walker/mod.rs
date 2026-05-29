@@ -65,6 +65,13 @@ impl WalkerShellVariant {
             Self::Delta(shell) => shell.shell.simulate(ts),
         }
     }
+
+    pub fn orbital_period(&self) -> f64 {
+        match self {
+            Self::Star(shell) => shell.shell.metrics.orbital_period,
+            Self::Delta(shell) => shell.shell.metrics.orbital_period,
+        }
+    }
 }
 
 // impl WalkerShellVariant {
