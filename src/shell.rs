@@ -1,10 +1,15 @@
 use std::marker::PhantomData;
 
-use satkit::{Duration, Vector3, consts::EARTH_RADIUS, kepler::Kepler};
+use satkit::{
+    Duration, ITRFCoord, Instant, Vector3, consts::EARTH_RADIUS, kepler::Kepler,
+    prelude::qgcrf2itrf,
+};
+
 use tracing::info;
 
 use crate::{
     CrossPlaneDistances, CrossPlaneLatencies, SPEED_OF_LIGHT, ShellCoordinates, Timestamp,
+    code::Code,
 };
 
 #[derive(Clone, Debug)]
@@ -15,7 +20,7 @@ pub struct Satellite {
     inclination: f64,
     raan: f64,
     true_anomaly: f64,
-    kepler: Kepler,
+    pub kepler: Kepler,
 }
 
 fn altitude_to_semi_major_axis(a: f64) -> f64 {
@@ -62,8 +67,18 @@ impl Satellite {
         (self.position() - s.position()).norm()
     }
 
-    pub fn coord(&self) -> (u64, u64) {
-        (self.orbit, self.idx)
+    pub fn coord(&self) -> ShellCoordinates {
+        (self.orbit as usize, self.idx as usize)
+    }
+
+    pub fn itrf_coord(&self, ts: Timestamp) -> Result<ITRFCoord, satkit::itrfcoord::Error> {
+        let ts =
+            Instant::from_datetime(2026, 1, 1, 11, 0, 0f64).unwrap() + Duration::from_seconds(ts);
+        let trans = qgcrf2itrf(&ts);
+        // info!(trans=?trans.to_axis_angle(), kep=?self.position());
+        let raw_pos = trans * self.position();
+        // info!(?raw_pos);
+        ITRFCoord::from_slice(raw_pos.as_slice())
     }
 }
 

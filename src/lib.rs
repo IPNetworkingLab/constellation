@@ -1,6 +1,8 @@
 use std::{collections::HashMap, f64};
 
 pub mod code;
+pub mod constellation;
+pub mod gateway;
 pub mod shell;
 pub mod walker;
 

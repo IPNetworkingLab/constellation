@@ -1,4 +1,11 @@
-#[derive(Debug)]
+use std::{collections::HashMap, path::PathBuf};
+
+use clap::builder::OsStr;
+use serde::Deserialize;
+
+use crate::gateway::Gateway;
+
+#[derive(Debug, Deserialize)]
 pub enum Walker {
     Delta,
     Star,
@@ -29,7 +36,7 @@ pub enum CodeError {
     PlaneParameters(PlaneParametersError),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Deserialize)]
 pub struct Code {
     pub walker: Walker,
     pub altitude: f64,
@@ -37,7 +44,7 @@ pub struct Code {
     pub plane_parameters: PlaneParameters,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Deserialize)]
 pub struct PlaneParameters {
     pub sats: u32,
     pub planes: u32,
@@ -93,5 +100,40 @@ impl TryFrom<String> for Code {
             inclination,
             plane_parameters,
         })
+    }
+}
+
+impl TryFrom<&str> for Code {
+    type Error = CodeError;
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        Code::try_from(value.to_string())
+    }
+}
+
+#[allow(unused)]
+#[derive(Deserialize, Debug)]
+pub struct ConstellationShell {
+    pub code: String,
+    pub name: String,
+    pub link_patterns: Vec<HashMap<String, usize>>,
+}
+
+#[allow(unused)]
+#[derive(Deserialize, Debug)]
+pub struct ConstellationCode {
+    pub version: String,
+    pub shells: Vec<ConstellationShell>,
+    pub gateways: Vec<Gateway>,
+}
+
+impl TryFrom<&PathBuf> for ConstellationCode {
+    // FIXME
+    type Error = ();
+    fn try_from(path: &PathBuf) -> Result<Self, Self::Error> {
+        if !path.exists() || !path.is_file() || path.extension() != Some(&OsStr::from("yaml")) {
+            return Err(());
+        }
+        let raw = std::fs::read(path).map_err(|_| ())?;
+        yaml_serde::from_slice::<ConstellationCode>(&raw).map_err(|_| ())
     }
 }
