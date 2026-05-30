@@ -1,9 +1,10 @@
 use std::{
     collections::{HashMap, HashSet},
     path::PathBuf,
-    sync::{Arc, Mutex},
 };
 
+use serde::Serialize;
+use serde_json;
 use tokio::{
     runtime,
     task::{self, JoinHandle},
@@ -19,17 +20,17 @@ use crate::{
 
 #[derive(Debug)]
 pub struct Constellation {
-    cfg: ConstellationCode,
+    pub cfg: ConstellationCode,
     pub shells: Vec<WalkerShellVariant>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize)]
 pub enum ConnectivityEventType {
     Addition,
     Removal,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize)]
 pub struct ConnectivityEvent {
     pub sat: ShellCoordinates,
     pub gw: String,
@@ -63,6 +64,7 @@ impl Constellation {
         &mut self,
         duration: u64,
         step: f64,
+        dump: bool,
     ) -> HashMap<String, Vec<ConnectivityEvent>> {
         fn compute(
             old: HashSet<ShellCoordinates>,
@@ -112,13 +114,10 @@ impl Constellation {
         let mut bar = pbar(Some(duration as usize));
         let rt = runtime::Runtime::new().unwrap();
         rt.block_on(async {
+            let mut old_contacts: HashMap<String, HashSet<ShellCoordinates>> = Default::default();
             while ts < duration {
                 self.simulate(step);
-                ts += step as u64;
-
                 for (idx, shell) in self.shells.iter().enumerate() {
-                    let mut old_contacts: HashMap<String, HashSet<ShellCoordinates>> =
-                        Default::default();
                     if let WalkerShellVariant::Delta(shell) = shell {
                         let handles: Vec<
                             JoinHandle<(
@@ -131,16 +130,12 @@ impl Constellation {
                             .gateways
                             .iter()
                             .map(|gw| {
-                                let old = old_contacts.entry(gw.name.clone()).or_default();
+                                let old = old_contacts.entry(gw.name.clone()).or_default().clone();
                                 let ts = ts.clone();
                                 let idx = idx.clone();
-                                let old_clone = old.clone();
                                 let gw_clone = Box::new(gw.clone());
                                 let shell = Box::new(shell.clone());
-
-                                task::spawn(
-                                    async move { compute(old_clone, gw_clone, shell, idx, ts) },
-                                )
+                                task::spawn(async move { compute(old, gw_clone, shell, idx, ts) })
                             })
                             .collect();
                         for handle in handles {
@@ -154,8 +149,17 @@ impl Constellation {
                         }
                     }
                 }
+                ts += step as u64;
                 let _ = bar.update(step as usize);
             }
+            if dump {
+                let events = serde_json::to_string(&all_events).unwrap();
+                let _ = std::fs::write(
+                    PathBuf::from(format!("{}_events.json", self.cfg.shells[0].name)),
+                    events,
+                );
+            }
+
             all_events
         })
     }

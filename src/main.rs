@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use clap::Parser;
 use tracing::{debug, info};
@@ -35,8 +35,13 @@ fn main() -> Result<(), ()> {
         let periods = constellation.orbital_periods();
         let period = periods[0].1;
         info!(?period);
-        let events = constellation.connectivity_events(period as u64, 1f64);
-        info!(?events);
+        let events = constellation.connectivity_events(period as u64, 1f64, true);
+        // info!(?events);
+        // let events = serde_json::to_string(&events).unwrap();
+        // let _ = std::fs::write(
+        //     PathBuf::from(format!("{}_events.json", constellation.cfg.shells[0].name)),
+        //     events,
+        // );
         // debug!(?constellation);
         // if let Some(ts) = cli.ts
         //     && let Some(gw) = cli.gw
