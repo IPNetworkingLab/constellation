@@ -1,15 +1,20 @@
 use std::{
     collections::{HashMap, HashSet},
     path::PathBuf,
+    sync::{Arc, Mutex},
 };
 
+use tokio::{
+    runtime,
+    task::{self, JoinHandle},
+};
 use tqdm::pbar;
 
 use crate::{
     ShellCoordinates, Timestamp,
     code::{Code, ConstellationCode},
     gateway::Gateway,
-    walker::WalkerShellVariant,
+    walker::{WalkerShell, WalkerShellVariant, pattern::WalkerDelta},
 };
 
 #[derive(Debug)]
@@ -59,66 +64,100 @@ impl Constellation {
         duration: u64,
         step: f64,
     ) -> HashMap<String, Vec<ConnectivityEvent>> {
+        fn compute(
+            old: HashSet<ShellCoordinates>,
+            gw: Box<Gateway>,
+            shell: Box<WalkerShell<WalkerDelta>>,
+            idx: usize,
+            ts: u64,
+        ) -> (
+            HashSet<ShellCoordinates>,
+            String,
+            Option<Vec<ConnectivityEvent>>,
+        ) {
+            let (coords, _dists) = gw
+                .sats_in_sight(&shell.shell, ts as f64)
+                .iter()
+                .map(|(coord, dist)| (coord, dist))
+                .collect::<(Vec<ShellCoordinates>, Vec<f64>)>();
+            let current: HashSet<ShellCoordinates> = HashSet::from_iter(coords);
+            if old == current {
+                return (current, gw.name.clone(), None);
+            }
+            let lost = old.difference(&current);
+            let new = current.difference(&old);
+
+            let mut events = lost
+                .into_iter()
+                .map(|coord| ConnectivityEvent {
+                    sat: *coord,
+                    gw: gw.name.clone(),
+                    shell: idx,
+                    ts: ts as f64,
+                    event: ConnectivityEventType::Removal,
+                })
+                .collect::<Vec<ConnectivityEvent>>();
+            events.extend(new.into_iter().map(|coord| ConnectivityEvent {
+                sat: *coord,
+                gw: gw.name.clone(),
+                shell: idx,
+                ts: ts as f64,
+                event: ConnectivityEventType::Addition,
+            }));
+            (current, gw.name.clone(), Some(events))
+        }
+
         let mut ts = 0;
         let mut all_events: HashMap<String, Vec<ConnectivityEvent>> = Default::default();
         let mut bar = pbar(Some(duration as usize));
-        while ts < duration {
-            self.simulate(step);
-            ts += step as u64;
+        let rt = runtime::Runtime::new().unwrap();
+        rt.block_on(async {
+            while ts < duration {
+                self.simulate(step);
+                ts += step as u64;
 
-            self.shells.iter().enumerate().for_each(|(idx, shell)| {
-                let mut old_contacts: HashMap<&String, HashSet<ShellCoordinates>> =
-                    Default::default();
-                for gw in &self.cfg.gateways {
+                for (idx, shell) in self.shells.iter().enumerate() {
+                    let mut old_contacts: HashMap<String, HashSet<ShellCoordinates>> =
+                        Default::default();
                     if let WalkerShellVariant::Delta(shell) = shell {
-                        let (coords, _dists) = gw
-                            .sats_in_sight(&shell.shell, ts as f64)
+                        let handles: Vec<
+                            JoinHandle<(
+                                HashSet<ShellCoordinates>,
+                                String,
+                                Option<Vec<ConnectivityEvent>>,
+                            )>,
+                        > = self
+                            .cfg
+                            .gateways
                             .iter()
-                            .map(|(coord, dist)| (coord, dist))
-                            .collect::<(Vec<ShellCoordinates>, Vec<f64>)>();
-                        let current_contacts: HashSet<ShellCoordinates> =
-                            HashSet::from_iter(coords);
-                        let old = old_contacts
-                            .entry(&gw.name)
-                            .or_insert(current_contacts.clone());
-                        if old == &current_contacts {
-                            continue;
-                        }
-                        let lost = old.difference(&current_contacts);
-                        let new = current_contacts.difference(&old);
+                            .map(|gw| {
+                                let old = old_contacts.entry(gw.name.clone()).or_default();
+                                let ts = ts.clone();
+                                let idx = idx.clone();
+                                let old_clone = old.clone();
+                                let gw_clone = Box::new(gw.clone());
+                                let shell = Box::new(shell.clone());
 
-                        let mut events = lost
-                            .into_iter()
-                            .map(|coord| ConnectivityEvent {
-                                sat: *coord,
-                                gw: gw.name.clone(),
-                                shell: idx,
-                                ts: ts as f64,
-                                event: ConnectivityEventType::Removal,
+                                task::spawn(
+                                    async move { compute(old_clone, gw_clone, shell, idx, ts) },
+                                )
                             })
-                            .collect::<Vec<ConnectivityEvent>>();
-                        events.extend(new.into_iter().map(|coord| ConnectivityEvent {
-                            sat: *coord,
-                            gw: gw.name.clone(),
-                            shell: idx,
-                            ts: ts as f64,
-                            event: ConnectivityEventType::Addition,
-                        }));
-
-                        *old = current_contacts;
-                        if !events.is_empty() {
-                            all_events
-                                .entry(gw.name.clone())
-                                .or_default()
-                                .extend(events);
+                            .collect();
+                        for handle in handles {
+                            let (current, gw, events) = handle.await.unwrap();
+                            old_contacts.entry(gw.clone()).insert_entry(current);
+                            if let Some(events) = events
+                                && !events.is_empty()
+                            {
+                                all_events.entry(gw).or_default().extend(events);
+                            }
                         }
                     }
                 }
-            });
-            let _ = bar.update(step as usize);
-            // info!(?ts, ?duration, diff = ts < duration);
-        }
-        all_events
+                let _ = bar.update(step as usize);
+            }
+            all_events
+        })
     }
 }
 

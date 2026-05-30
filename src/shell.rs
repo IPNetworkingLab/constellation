@@ -82,7 +82,7 @@ impl Satellite {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Orbit {
     idx: u64,
     nsats: usize,
@@ -149,14 +149,14 @@ where
     fn neighbors(shell: &Shell<P>, coords: ShellCoordinates) -> Vec<ShellCoordinates>;
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ShellMetrics {
     pub orbital_period: f64,
     pub ip_distance: f64,
     pub ip_latency: f64,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Shell<Pattern> {
     pub norbits: usize,
     pub nsats: usize,

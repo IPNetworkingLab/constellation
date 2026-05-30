@@ -6,7 +6,7 @@ use crate::{
     shell::{Pattern, Shell},
 };
 
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize, Debug, Clone)]
 pub struct Gateway {
     pub name: String,
     #[serde(alias = "latitude_deg")]

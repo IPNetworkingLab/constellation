@@ -10,27 +10,27 @@ use crate::{
 
 pub trait WalkerPattern
 where
-    Self: Pattern,
+    Self: Pattern + Clone,
 {
     const RAAN_SPAN: f64;
 }
 
 pub mod pattern {
     use super::WalkerPattern;
-    #[derive(Debug)]
+    #[derive(Debug, Clone)]
     pub struct WalkerDelta();
     impl WalkerPattern for WalkerDelta {
         const RAAN_SPAN: f64 = 360f64;
     }
 
-    #[derive(Debug)]
+    #[derive(Debug, Clone)]
     pub struct WalkerStar();
     impl WalkerPattern for WalkerStar {
         const RAAN_SPAN: f64 = 180f64;
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct WalkerShell<WalkerPattern> {
     pub shell: Shell<WalkerPattern>,
     // TODO: link_pattern
