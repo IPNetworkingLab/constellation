@@ -1,5 +1,6 @@
 use std::marker::PhantomData;
 
+use constellation_code::Code;
 use satkit::{
     Duration, ITRFCoord, Instant, Vector3, consts::EARTH_RADIUS, kepler::Kepler,
     prelude::qgcrf2itrf,
@@ -155,6 +156,7 @@ pub struct ShellMetrics {
 
 #[derive(Debug, Clone)]
 pub struct Shell<Pattern> {
+    pub code: Code,
     pub norbits: usize,
     pub nsats: usize,
     pub nsats_per_orbit: usize,
@@ -173,6 +175,7 @@ where
     P: Pattern,
 {
     pub fn new(
+        code: Code,
         norbits: usize,
         nsats: usize,
         altitude: f64,
@@ -211,6 +214,7 @@ where
         };
 
         let shell = Self {
+            code,
             norbits,
             nsats,
             nsats_per_orbit,
