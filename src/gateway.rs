@@ -1,27 +1,30 @@
+use std::sync::Arc;
+
 use satkit::ITRFCoord;
-use serde::Deserialize;
+
+use constellation_code::Gateway as InnerGateway;
 
 use crate::{
     ShellCoordinates, Timestamp,
     shell::{Pattern, Shell},
 };
 
-#[derive(Deserialize, Debug, Clone)]
-pub struct Gateway {
-    pub name: String,
-    #[serde(alias = "latitude_deg")]
-    latitude: f64,
-    #[serde(alias = "longitude_deg")]
-    longitude: f64,
-    #[serde(alias = "altitude_m")]
-    altitude: f64,
-    #[serde(alias = "min_elevation_deg")]
-    min_elevation: f64,
+#[derive(Debug, Clone)]
+pub struct Gateway(Arc<InnerGateway>);
+
+impl<'a> From<&'a InnerGateway> for Gateway {
+    fn from(value: &'a InnerGateway) -> Self {
+        Self(Arc::new(value.clone()))
+    }
 }
 
 impl Gateway {
+    pub fn get_name(&self) -> &String {
+        &self.0.name
+    }
+
     pub fn position(&self) -> ITRFCoord {
-        ITRFCoord::from_geodetic_deg(self.latitude, self.longitude, self.altitude)
+        ITRFCoord::from_geodetic_deg(self.0.latitude, self.0.longitude, self.0.altitude)
     }
 
     // fn distance(&self, coord: ITRFCoord) -> Option<f64> {
@@ -48,7 +51,7 @@ impl Gateway {
                         let norm = ned.norm();
                         let ned_hat = ned / norm;
                         let elevation = (-ned_hat[2]).asin().to_degrees();
-                        (elevation >= self.min_elevation).then_some((s.coord(), norm))
+                        (elevation >= self.0.min_elevation).then_some((s.coord(), norm))
                     })
                     .collect::<Vec<(ShellCoordinates, f64)>>()
             })

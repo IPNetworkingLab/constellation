@@ -1,6 +1,7 @@
 use std::{
     collections::{HashMap, HashSet},
     path::PathBuf,
+    sync::Arc,
 };
 
 use serde::Serialize;
@@ -13,12 +14,12 @@ use tqdm::pbar;
 
 use crate::{
     ShellCoordinates, Timestamp,
-    code::{Code, ConstellationCode},
     gateway::Gateway,
     walker::{WalkerShell, WalkerShellVariant, pattern::WalkerDelta},
 };
+use constellation_code::{Code, ConstellationCode};
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Constellation {
     pub cfg: ConstellationCode,
     pub shells: Vec<WalkerShellVariant>,
@@ -40,12 +41,16 @@ pub struct ConnectivityEvent {
 }
 
 impl Constellation {
-    pub fn gateways(&self) -> &Vec<Gateway> {
-        &self.cfg.gateways
+    pub fn gateways(&self) -> Vec<Gateway> {
+        self.cfg.gateways.iter().map(|gw| gw.into()).collect()
     }
 
-    pub fn get_gateway(&self, gw: String) -> Option<&Gateway> {
-        self.cfg.gateways.iter().find(|current| current.name == gw)
+    pub fn get_gateway(&self, gw: String) -> Option<Gateway> {
+        self.cfg
+            .gateways
+            .iter()
+            .find(|current| current.name == gw)
+            .and_then(|gw| Some(Gateway::from(gw)))
     }
 
     pub fn simulate(&mut self, ts: Timestamp) {
@@ -68,8 +73,8 @@ impl Constellation {
     ) -> HashMap<String, Vec<ConnectivityEvent>> {
         fn compute(
             old: HashSet<ShellCoordinates>,
-            gw: Box<Gateway>,
-            shell: Box<WalkerShell<WalkerDelta>>,
+            gw: Gateway,
+            shell: Arc<Box<WalkerShell<WalkerDelta>>>,
             idx: usize,
             ts: u64,
         ) -> (
@@ -84,7 +89,7 @@ impl Constellation {
                 .collect::<(Vec<ShellCoordinates>, Vec<f64>)>();
             let current: HashSet<ShellCoordinates> = HashSet::from_iter(coords);
             if old == current {
-                return (current, gw.name.clone(), None);
+                return (current, gw.get_name().clone(), None);
             }
             let lost = old.difference(&current);
             let new = current.difference(&old);
@@ -93,7 +98,7 @@ impl Constellation {
                 .into_iter()
                 .map(|coord| ConnectivityEvent {
                     sat: *coord,
-                    gw: gw.name.clone(),
+                    gw: gw.get_name().clone(),
                     shell: idx,
                     ts: ts as f64,
                     event: ConnectivityEventType::Removal,
@@ -101,40 +106,44 @@ impl Constellation {
                 .collect::<Vec<ConnectivityEvent>>();
             events.extend(new.into_iter().map(|coord| ConnectivityEvent {
                 sat: *coord,
-                gw: gw.name.clone(),
+                gw: gw.get_name().clone(),
                 shell: idx,
                 ts: ts as f64,
                 event: ConnectivityEventType::Addition,
             }));
-            (current, gw.name.clone(), Some(events))
+            (current, gw.get_name().clone(), Some(events))
         }
 
         let mut ts = 0;
         let mut all_events: HashMap<String, Vec<ConnectivityEvent>> = Default::default();
         let mut bar = pbar(Some(duration as usize));
         let rt = runtime::Runtime::new().unwrap();
+
         rt.block_on(async {
             let mut old_contacts: HashMap<String, HashSet<ShellCoordinates>> = Default::default();
+            let gateways = self.gateways();
             while ts < duration {
                 self.simulate(step);
                 for (idx, shell) in self.shells.iter().enumerate() {
                     if let WalkerShellVariant::Delta(shell) = shell {
+                        let shell = Arc::new(Box::new(shell.clone()));
                         let handles: Vec<
                             JoinHandle<(
                                 HashSet<ShellCoordinates>,
                                 String,
                                 Option<Vec<ConnectivityEvent>>,
                             )>,
-                        > = self
-                            .cfg
-                            .gateways
+                        > = gateways
                             .iter()
                             .map(|gw| {
-                                let old = old_contacts.entry(gw.name.clone()).or_default().clone();
+                                let old = old_contacts
+                                    .entry(gw.get_name().clone())
+                                    .or_default()
+                                    .clone();
                                 let ts = ts.clone();
                                 let idx = idx.clone();
-                                let gw_clone = Box::new(gw.clone());
-                                let shell = Box::new(shell.clone());
+                                let gw_clone = gw.clone();
+                                let shell = shell.clone();
                                 task::spawn(async move { compute(old, gw_clone, shell, idx, ts) })
                             })
                             .collect();

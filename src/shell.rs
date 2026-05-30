@@ -5,11 +5,8 @@ use satkit::{
     prelude::qgcrf2itrf,
 };
 
-use tracing::info;
-
 use crate::{
     CrossPlaneDistances, CrossPlaneLatencies, SPEED_OF_LIGHT, ShellCoordinates, Timestamp,
-    code::Code,
 };
 
 #[derive(Clone, Debug)]

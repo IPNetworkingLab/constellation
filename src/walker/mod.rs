@@ -1,16 +1,20 @@
 pub mod delta;
 pub mod star;
 
+use constellation_code::{
+    Code,
+    patterns::{Pattern, WalkerPattern as Walker},
+};
+
 use crate::{
-    Timestamp,
-    code::{Code, Walker},
-    shell::{Pattern, Shell},
+    CrossPlaneLatencies, Timestamp,
+    shell::{Pattern as ShellPattern, Shell},
     walker::pattern::{WalkerDelta, WalkerStar},
 };
 
 pub trait WalkerPattern
 where
-    Self: Pattern + Clone,
+    Self: ShellPattern + Clone,
 {
     const RAAN_SPAN: f64;
 }
@@ -52,7 +56,7 @@ where
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum WalkerShellVariant {
     Star(WalkerShell<WalkerStar>),
     Delta(WalkerShell<WalkerDelta>),
@@ -72,6 +76,20 @@ impl WalkerShellVariant {
             Self::Delta(shell) => shell.shell.metrics.orbital_period,
         }
     }
+
+    pub fn get_cross_plane_latencies(&self) -> CrossPlaneLatencies {
+        match self {
+            Self::Star(shell) => shell.shell.get_cross_plane_latencies(),
+            Self::Delta(shell) => shell.shell.get_cross_plane_latencies(),
+        }
+    }
+
+    pub fn get_in_plane_latencies(&self) -> f64 {
+        match self {
+            Self::Star(shell) => shell.shell.metrics.ip_latency,
+            Self::Delta(shell) => shell.shell.metrics.ip_latency,
+        }
+    }
 }
 
 // impl WalkerShellVariant {
@@ -86,18 +104,24 @@ impl WalkerShellVariant {
 impl TryFrom<&Code> for WalkerShellVariant {
     type Error = ();
     fn try_from(code: &Code) -> Result<Self, Self::Error> {
-        let variant = match code.walker {
-            Walker::Star => Self::Star(WalkerShell::<WalkerStar>::try_from(code)?),
-            Walker::Delta => Self::Delta(WalkerShell::<WalkerDelta>::try_from(code)?),
-        };
-        Ok(variant)
+        // TODO: Remove when more patterns added.
+        #[allow(irrefutable_let_patterns)]
+        if let Pattern::Walker(pattern) = &code.pattern {
+            let variant = match pattern {
+                Walker::Star => Self::Star(WalkerShell::<WalkerStar>::try_from(code)?),
+                Walker::Delta => Self::Delta(WalkerShell::<WalkerDelta>::try_from(code)?),
+            };
+            Ok(variant)
+        } else {
+            Err(())
+        }
     }
 }
 
 impl TryFrom<&Code> for WalkerShell<WalkerStar> {
     type Error = ();
     fn try_from(code: &Code) -> Result<Self, Self::Error> {
-        if !matches!(code.walker, Walker::Star) {
+        if !matches!(code.pattern, Pattern::Walker(Walker::Star)) {
             return Err(());
         }
         WalkerShell::<WalkerStar>::new(
@@ -113,7 +137,7 @@ impl TryFrom<&Code> for WalkerShell<WalkerStar> {
 impl TryFrom<&Code> for WalkerShell<WalkerDelta> {
     type Error = ();
     fn try_from(code: &Code) -> Result<Self, Self::Error> {
-        if !matches!(code.walker, Walker::Delta) {
+        if !matches!(code.pattern, Pattern::Walker(Walker::Delta)) {
             return Err(());
         }
         WalkerShell::<WalkerDelta>::new(
