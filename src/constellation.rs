@@ -1,5 +1,6 @@
 use std::{
     collections::{HashMap, HashSet},
+    fs::create_dir,
     path::PathBuf,
     sync::Arc,
 };
@@ -69,7 +70,7 @@ impl Constellation {
         &mut self,
         duration: u64,
         step: f64,
-        dump: bool,
+        dump: Option<PathBuf>,
     ) -> HashMap<String, Vec<ConnectivityEvent>> {
         fn compute(
             old: HashSet<ShellCoordinates>,
@@ -161,12 +162,17 @@ impl Constellation {
                 ts += step as u64;
                 let _ = bar.update(step as usize);
             }
-            if dump {
+            if let Some(path) = dump {
+                // $ROOT/<variant>/<topo>/
+                let path = path.parent().unwrap();
+                let topo = path.file_name().unwrap();
+                let mut path = path.parent().unwrap().to_path_buf();
+                path.push("kepler");
+                if !path.exists() {
+                    let _ = std::fs::create_dir(path.clone());
+                }
                 let events = serde_json::to_string(&all_events).unwrap();
-                let _ = std::fs::write(
-                    PathBuf::from(format!("{}_events.json", self.cfg.shells[0].name)),
-                    events,
-                );
+                let _ = std::fs::write(PathBuf::from(format!("{topo:?}.json")), events);
             }
 
             all_events

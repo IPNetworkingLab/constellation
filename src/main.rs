@@ -35,7 +35,7 @@ fn main() -> Result<(), ()> {
         let periods = constellation.orbital_periods();
         let period = periods[0].1;
         info!(?period);
-        let events = constellation.connectivity_events(period as u64, 1f64, true);
+        let events = constellation.connectivity_events(period as u64, 1f64, None);
         // info!(?events);
         // let events = serde_json::to_string(&events).unwrap();
         // let _ = std::fs::write(
