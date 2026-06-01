@@ -170,11 +170,10 @@ impl Constellation {
                 if !path.exists() {
                     let _ = std::fs::create_dir(path.clone());
                 }
+                path.push(topo.to_str().unwrap());
+                path.set_extension("json");
                 let events = serde_json::to_string(&all_events).unwrap();
-                let _ = std::fs::write(
-                    PathBuf::from(format!("{}.json", topo.to_str().unwrap())),
-                    events,
-                );
+                let _ = std::fs::write(path, events);
             }
 
             all_events
