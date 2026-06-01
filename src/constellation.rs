@@ -164,15 +164,17 @@ impl Constellation {
             }
             if let Some(path) = dump {
                 // $ROOT/<variant>/<topo>/
-                let path = path.parent().unwrap();
                 let topo = path.file_name().unwrap();
-                let mut path = path.parent().unwrap().to_path_buf();
+                let mut path = path.parent().unwrap().parent().unwrap().to_path_buf();
                 path.push("kepler");
                 if !path.exists() {
                     let _ = std::fs::create_dir(path.clone());
                 }
                 let events = serde_json::to_string(&all_events).unwrap();
-                let _ = std::fs::write(PathBuf::from(format!("{topo:?}.json")), events);
+                let _ = std::fs::write(
+                    PathBuf::from(format!("{}.json", topo.to_str().unwrap())),
+                    events,
+                );
             }
 
             all_events
