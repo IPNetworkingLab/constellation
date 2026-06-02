@@ -1,9 +1,9 @@
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use clap::Parser;
-use tracing::{debug, info};
+use tracing::info;
 
-use constellation::{SPEED_OF_LIGHT, constellation::Constellation, walker::WalkerShellVariant};
+use constellation::constellation::Constellation;
 
 #[derive(Parser)]
 pub struct Cli {

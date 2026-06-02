@@ -9,6 +9,7 @@ use constellation_code::{
 
 use crate::{
     CrossPlaneLatencies, ShellCoordinates, Timestamp,
+    gateway::Gateway,
     shell::{Pattern as ShellPattern, Satellite, Shell},
     walker::pattern::{WalkerDelta, WalkerStar},
 };
@@ -89,6 +90,16 @@ pub enum WalkerShellVariant {
 }
 
 impl WalkerShellVariant {
+    pub fn sat_in_sight(&self, gw: &Gateway, ts: Timestamp) -> (Vec<ShellCoordinates>, Vec<f64>) {
+        match self {
+            Self::Star(shell) => gw.sats_in_sight(&shell.shell, ts),
+            Self::Delta(shell) => gw.sats_in_sight(&shell.shell, ts),
+        }
+        .iter()
+        .map(|(coord, dist)| (coord, dist))
+        .collect::<(Vec<ShellCoordinates>, Vec<f64>)>()
+    }
+
     pub fn get_sat(&self, coords: ShellCoordinates) -> Option<&Satellite> {
         match self {
             Self::Star(shell) => shell.shell.get_sat(coords),

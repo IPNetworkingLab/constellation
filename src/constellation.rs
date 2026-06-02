@@ -75,7 +75,7 @@ impl Constellation {
         fn compute(
             old: HashSet<ShellCoordinates>,
             gw: Gateway,
-            shell: Arc<Box<WalkerShell<WalkerDelta>>>,
+            shell: Arc<Box<WalkerShellVariant>>,
             idx: usize,
             ts: u64,
         ) -> (
@@ -83,11 +83,7 @@ impl Constellation {
             String,
             Option<Vec<ConnectivityEvent>>,
         ) {
-            let (coords, _dists) = gw
-                .sats_in_sight(&shell.shell, ts as f64)
-                .iter()
-                .map(|(coord, dist)| (coord, dist))
-                .collect::<(Vec<ShellCoordinates>, Vec<f64>)>();
+            let (coords, _dists) = shell.sat_in_sight(&gw, ts as f64);
             let current: HashSet<ShellCoordinates> = HashSet::from_iter(coords);
             if old == current {
                 return (current, gw.get_name().clone(), None);
@@ -126,36 +122,34 @@ impl Constellation {
             while ts < duration {
                 self.simulate(step);
                 for (idx, shell) in self.shells.iter().enumerate() {
-                    if let WalkerShellVariant::Delta(shell) = shell {
-                        let shell = Arc::new(Box::new(shell.clone()));
-                        let handles: Vec<
-                            JoinHandle<(
-                                HashSet<ShellCoordinates>,
-                                String,
-                                Option<Vec<ConnectivityEvent>>,
-                            )>,
-                        > = gateways
-                            .iter()
-                            .map(|gw| {
-                                let old = old_contacts
-                                    .entry(gw.get_name().clone())
-                                    .or_default()
-                                    .clone();
-                                let ts = ts.clone();
-                                let idx = idx.clone();
-                                let gw_clone = gw.clone();
-                                let shell = shell.clone();
-                                task::spawn(async move { compute(old, gw_clone, shell, idx, ts) })
-                            })
-                            .collect();
-                        for handle in handles {
-                            let (current, gw, events) = handle.await.unwrap();
-                            old_contacts.entry(gw.clone()).insert_entry(current);
-                            if let Some(events) = events
-                                && !events.is_empty()
-                            {
-                                all_events.entry(gw).or_default().extend(events);
-                            }
+                    let shell = Arc::new(Box::new(shell.clone()));
+                    let handles: Vec<
+                        JoinHandle<(
+                            HashSet<ShellCoordinates>,
+                            String,
+                            Option<Vec<ConnectivityEvent>>,
+                        )>,
+                    > = gateways
+                        .iter()
+                        .map(|gw| {
+                            let old = old_contacts
+                                .entry(gw.get_name().clone())
+                                .or_default()
+                                .clone();
+                            let ts = ts.clone();
+                            let idx = idx.clone();
+                            let gw_clone = gw.clone();
+                            let shell = shell.clone();
+                            task::spawn(async move { compute(old, gw_clone, shell, idx, ts) })
+                        })
+                        .collect();
+                    for handle in handles {
+                        let (current, gw, events) = handle.await.unwrap();
+                        old_contacts.entry(gw.clone()).insert_entry(current);
+                        if let Some(events) = events
+                            && !events.is_empty()
+                        {
+                            all_events.entry(gw).or_default().extend(events);
                         }
                     }
                 }
