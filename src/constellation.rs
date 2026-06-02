@@ -13,11 +13,7 @@ use tokio::{
 };
 use tqdm::pbar;
 
-use crate::{
-    ShellCoordinates, Timestamp,
-    gateway::Gateway,
-    walker::{WalkerShell, WalkerShellVariant, pattern::WalkerDelta},
-};
+use crate::{ShellCoordinates, Timestamp, gateway::Gateway, walker::WalkerShellVariant};
 use constellation_code::{Code, ConstellationCode};
 
 #[derive(Debug, Clone)]
@@ -39,6 +35,7 @@ pub struct ConnectivityEvent {
     pub shell: usize,
     pub ts: Timestamp,
     pub event: ConnectivityEventType,
+    pub distance: f64,
 }
 
 impl Constellation {
@@ -73,20 +70,24 @@ impl Constellation {
         dump: Option<PathBuf>,
     ) -> HashMap<String, Vec<ConnectivityEvent>> {
         fn compute(
-            old: HashSet<ShellCoordinates>,
+            previous_in_sight: HashMap<ShellCoordinates, f64>,
             gw: Gateway,
             shell: Arc<Box<WalkerShellVariant>>,
             idx: usize,
             ts: u64,
+            previous_ts: u64,
         ) -> (
-            HashSet<ShellCoordinates>,
+            HashMap<ShellCoordinates, f64>,
             String,
             Option<Vec<ConnectivityEvent>>,
         ) {
-            let (coords, _dists) = shell.sat_in_sight(&gw, ts as f64);
-            let current: HashSet<ShellCoordinates> = HashSet::from_iter(coords);
+            let in_sight: HashMap<(usize, usize), f64> =
+                HashMap::from_iter(shell.sat_in_sight(&gw, ts as f64));
+            let current: HashSet<ShellCoordinates> =
+                HashSet::from_iter(in_sight.keys().into_iter().cloned());
+            let old = HashSet::from_iter(previous_in_sight.keys().into_iter().cloned());
             if old == current {
-                return (current, gw.get_name().clone(), None);
+                return (in_sight, gw.get_name().clone(), None);
             }
             let lost = old.difference(&current);
             let new = current.difference(&old);
@@ -97,8 +98,9 @@ impl Constellation {
                     sat: *coord,
                     gw: gw.get_name().clone(),
                     shell: idx,
-                    ts: ts as f64,
+                    ts: previous_ts as f64,
                     event: ConnectivityEventType::Removal,
+                    distance: previous_in_sight[coord],
                 })
                 .collect::<Vec<ConnectivityEvent>>();
             events.extend(new.into_iter().map(|coord| ConnectivityEvent {
@@ -107,8 +109,9 @@ impl Constellation {
                 shell: idx,
                 ts: ts as f64,
                 event: ConnectivityEventType::Addition,
+                distance: in_sight[coord],
             }));
-            (current, gw.get_name().clone(), Some(events))
+            (in_sight, gw.get_name().clone(), Some(events))
         }
 
         let mut ts = 0;
@@ -117,7 +120,8 @@ impl Constellation {
         let rt = runtime::Runtime::new().unwrap();
 
         rt.block_on(async {
-            let mut old_contacts: HashMap<String, HashSet<ShellCoordinates>> = Default::default();
+            let mut old_contacts: HashMap<String, HashMap<ShellCoordinates, f64>> =
+                Default::default();
             let gateways = self.gateways();
             while ts < duration {
                 self.simulate(step);
@@ -125,7 +129,7 @@ impl Constellation {
                     let shell = Arc::new(Box::new(shell.clone()));
                     let handles: Vec<
                         JoinHandle<(
-                            HashSet<ShellCoordinates>,
+                            HashMap<ShellCoordinates, f64>,
                             String,
                             Option<Vec<ConnectivityEvent>>,
                         )>,
@@ -140,7 +144,9 @@ impl Constellation {
                             let idx = idx.clone();
                             let gw_clone = gw.clone();
                             let shell = shell.clone();
-                            task::spawn(async move { compute(old, gw_clone, shell, idx, ts) })
+                            task::spawn(async move {
+                                compute(old, gw_clone, shell, idx, ts, ts - step as u64)
+                            })
                         })
                         .collect();
                     for handle in handles {
