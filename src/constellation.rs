@@ -1,11 +1,10 @@
 use std::{
     collections::{HashMap, HashSet},
-    fs::create_dir,
     path::PathBuf,
     sync::Arc,
 };
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json;
 use tokio::{
     runtime,
@@ -22,13 +21,13 @@ pub struct Constellation {
     pub shells: Vec<WalkerShellVariant>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub enum ConnectivityEventType {
     Addition,
     Removal,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ConnectivityEvent {
     pub sat: ShellCoordinates,
     pub gw: String,
@@ -172,13 +171,23 @@ impl Constellation {
                 }
                 path.push(topo.to_str().unwrap());
                 path.set_extension("json");
-                let events = serde_json::to_string(&all_events).unwrap();
+                let content = ConnectivityEventsDump {
+                    period: self.orbital_periods()[0].1,
+                    events: all_events.clone(),
+                };
+                let events = serde_json::to_string(&content).unwrap();
                 let _ = std::fs::write(path, events);
             }
 
             all_events
         })
     }
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct ConnectivityEventsDump {
+    pub period: f64,
+    pub events: HashMap<String, Vec<ConnectivityEvent>>,
 }
 
 impl TryFrom<&PathBuf> for Constellation {
