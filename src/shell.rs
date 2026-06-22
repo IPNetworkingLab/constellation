@@ -10,25 +10,40 @@ use crate::{
     CrossPlaneDistances, CrossPlaneLatencies, SPEED_OF_LIGHT, ShellCoordinates, Timestamp,
 };
 
-#[derive(Clone, Debug)]
-pub struct Satellite {
-    orbit: u64,
-    idx: u64,
-    altitude: f64,
-    inclination: f64,
-    raan: f64,
-    true_anomaly: f64,
-    pub kepler: Kepler,
-}
-
 fn altitude_to_semi_major_axis(a: f64) -> f64 {
     EARTH_RADIUS + a
 }
 
+#[derive(Clone, Debug)]
+/// Structure representing a single satellite.
+pub struct Satellite {
+    plane: usize,
+    rank: usize,
+    // altitude: f64,
+    // inclination: f64,
+    // raan: f64,
+    // true_anomaly: f64,
+    kepler: Kepler,
+}
+
 impl Satellite {
+    /// Create a new Satellite object.
+    ///
+    /// # Arguments
+    ///
+    /// - `rank` - The satellite rank within an orbital plane.
+    /// - `plane` - The satellite orbital plane within a shell.
+    /// - `altitude` - The satellite altitude w.r.t. the Earth's sea level (meters).
+    /// - `inclination` - The satellite incliniation (degrees).
+    /// - `raan` - Right Ascension of the Ascending Node (degrees).
+    /// - `true_anomaly` - Anomaly type representing location of satellite along
+    ///  the orbital plane (degrees).
+    ///
+    /// # Returns
+    /// - `Satellite` - A new Satellite object.
     pub fn new(
-        idx: u64,
-        orbit: u64,
+        rank: usize,
+        plane: usize,
         altitude: f64,
         inclination: f64,
         raan: f64,
@@ -43,51 +58,66 @@ impl Satellite {
             nu: true_anomaly.to_radians(),
         };
         Self {
-            idx,
-            orbit,
-            altitude,
-            inclination,
-            raan,
-            true_anomaly,
+            rank,
+            plane,
+            // altitude,
+            // inclination,
+            // raan,
+            // true_anomaly,
             kepler,
         }
     }
 
+    /// Determine the new position of the satellite after `ts` seconds since
+    /// the last timestamp.
+    ///
+    /// # Arguments
+    ///
+    /// - `ts` - The timestamp at which the position is computed (seconds).
     pub fn simulate(&mut self, ts: Timestamp) {
         self.kepler = self.kepler.propagate(&Duration::from_seconds(ts))
     }
 
+    /// Return the satellite position in cartesian coordinates (in meters).
     pub fn position(&self) -> Vector3 {
         self.kepler.to_pv().0
     }
 
+    /// Return the distance between the current satellite and the `s` satellite.
     pub fn distance(&self, s: &Self) -> f64 {
         (self.position() - s.position()).norm()
     }
 
+    /// Return the satellite position in shell coordinates.
     pub fn coord(&self) -> ShellCoordinates {
-        (self.orbit as usize, self.idx as usize)
+        (self.plane as usize, self.rank as usize)
     }
 
+    /// Return the satellite position in ITRF coordinates.
     pub fn itrf_coord(&self, ts: Timestamp) -> Result<ITRFCoord, satkit::itrfcoord::Error> {
         let ts =
             Instant::from_datetime(2026, 1, 1, 11, 0, 0f64).unwrap() + Duration::from_seconds(ts);
         let trans = qgcrf2itrf(&ts);
-        // info!(trans=?trans.to_axis_angle(), kep=?self.position());
         let raw_pos = trans * self.position();
-        // info!(?raw_pos);
         ITRFCoord::from_slice(raw_pos.as_slice())
+    }
+
+    /// Return the orbital period of the satellite (seconds).
+    pub fn period(&self) -> f64 {
+        self.kepler.period()
     }
 }
 
 #[derive(Debug, Clone)]
+/// Structure representing an orbital plane.
 pub struct Orbit {
-    idx: u64,
-    nsats: usize,
-    altitude: f64,
-    inclination: f64,
-    raan: f64,
-    phase: f64,
+    // idx: u64,
+    // nsats: usize,
+    // altitude: f64,
+    // inclination: f64,
+    // raan: f64,
+    // phase: f64,
+    /// Satellites contained in the orbital plane.
     pub satellites: Vec<Satellite>,
 }
 
@@ -104,8 +134,8 @@ impl Orbit {
             .into_iter()
             .map(|sat_idx| {
                 Satellite::new(
-                    sat_idx as u64,
-                    idx,
+                    sat_idx,
+                    idx as usize,
                     altitude,
                     inclination,
                     raan,
@@ -115,57 +145,84 @@ impl Orbit {
             .collect();
 
         Self {
-            idx,
-            nsats,
-            altitude,
-            inclination,
-            raan,
-            phase,
+            // idx,
+            // nsats,
+            // altitude,
+            // inclination,
+            // raan,
+            // phase,
             satellites,
         }
     }
 
+    /// Determine the new position of the satellites belonging to the orbital
+    /// plane after `ts` seconds since the last timestamp.
+    ///
+    /// # Arguments
+    ///
+    /// - `ts` - The timestamp at which the position is computed (seconds).
     pub fn simulate(&mut self, ts: Timestamp) {
         self.satellites.iter_mut().for_each(|s| s.simulate(ts));
     }
 
+    /// Return the position of each satellite belonging to the orbital plane
+    /// in cartesian coordinates (meters).
+    /// The index in the vector corresponds to the satellite rank.
     pub fn position(&self) -> Vec<Vector3> {
         self.satellites.iter().map(|s| s.position()).collect()
     }
 }
 
+/// Meta-trait representing a shell pattern.
+/// Actual patterns **must** implement this trait.
 pub trait Pattern
 where
     Self: 'static + std::fmt::Debug + Sized + Neighbors<Self>,
 {
 }
 
+/// Simple trait specifying how a shell with a given pattern re
 pub trait Neighbors<P>
 where
     P: Pattern,
 {
+    /// Return the neighbors of the satellite with `coords` within `shell`.
+    /// The list of neighbors depends on the shell pattern.
     fn neighbors(shell: &Shell<P>, coords: ShellCoordinates) -> Vec<ShellCoordinates>;
 }
 
 #[derive(Debug, Clone)]
+/// Basic shell metrics.
 pub struct ShellMetrics {
+    /// Shell's orbital period.
     pub orbital_period: f64,
+    /// Shell's in-plane distance.
     pub ip_distance: f64,
+    /// Shell's in-plane latency.
     pub ip_latency: f64,
 }
 
 #[derive(Debug, Clone)]
+/// Structure representing a constellation shell following `Pattern`.
 pub struct Shell<Pattern> {
+    /// The shell code.
     pub code: Code,
+    /// The number of orbital planes within the shell.
     pub norbits: usize,
+    /// Total number of satellite within the shell.
     pub nsats: usize,
+    /// Number of satellite per orbital plane within the shell.
     pub nsats_per_orbit: usize,
+    /// Shell altitude w.r.t. the Earth sea-level (meters).
     pub altitude: f64,
     pub inclination: f64,
     pub phasing: u64,
     pub raan: f64,
+    /// FIXME: Not used for now.
     pub full_connect: bool,
+    /// Basic shell metrics.
     pub metrics: ShellMetrics,
+    /// List of orbital planes.
     pub orbits: Vec<Orbit>,
     _pattern: PhantomData<Pattern>,
 }
@@ -204,7 +261,7 @@ where
         let (sat0, sats) = orbits[0].satellites.split_at_mut(1);
         let sat0 = &mut sat0[0];
         let sat1 = &mut sats[0];
-        let orbital_period = sat0.kepler.period();
+        let orbital_period = sat0.period();
         let ip_distance = sat0.distance(sat1);
         let ip_latency = ip_distance / SPEED_OF_LIGHT * 1000f64;
         let metrics = ShellMetrics {
@@ -231,24 +288,32 @@ where
         Ok(shell)
     }
 
+    /// Determine the new position of the satellites belonging to the shell
+    /// after `ts` seconds since the last timestamp.
+    ///
+    /// # Arguments
+    ///
+    /// - `ts` - The timestamp at which the position is computed (seconds).
     pub fn simulate(&mut self, ts: Timestamp) {
         self.orbits.iter_mut().for_each(|o| o.simulate(ts));
     }
 
-    pub fn get_sat(&self, coords: ShellCoordinates) -> Option<&Satellite> {
-        let (orbit, idx) = coords;
-        self.orbits
-            .get(orbit as usize)
-            .and_then(|o| o.satellites.get(idx as usize))
+    /// Return a reference to the `Satellite` identified by the coordinates
+    /// `(plane, rank)`, else `None` if the coordinates do not belong to the shell.
+    pub fn get_sat(&self, (plane, rank): ShellCoordinates) -> Option<&Satellite> {
+        self.orbits.get(plane).and_then(|o| o.satellites.get(rank))
     }
 
-    pub fn get_sat_mut(&mut self, coords: ShellCoordinates) -> Option<&mut Satellite> {
-        let (orbit, idx) = coords;
+    /// Return a mutable reference to the `Satellite` identified by the coordinates
+    /// `(plane, rank)`, else `None` if the coordinates do not belong to the shell.
+    pub fn get_sat_mut(&mut self, (plane, rank): ShellCoordinates) -> Option<&mut Satellite> {
         self.orbits
-            .get_mut(orbit as usize)
-            .and_then(|o| o.satellites.get_mut(idx as usize))
+            .get_mut(plane)
+            .and_then(|o| o.satellites.get_mut(rank))
     }
 
+    /// Compute distances between cross-plane neighboring satellites within the
+    /// shell.
     pub fn get_cross_plane_distances(&self) -> CrossPlaneDistances {
         let mut ret = CrossPlaneDistances::default();
         self.orbits.iter().enumerate().for_each(|(oidx, o)| {
@@ -273,6 +338,8 @@ where
         ret
     }
 
+    /// Compute latencies between cross-plane neighboring satellites within the
+    /// shell.
     pub fn get_cross_plane_latencies(&self) -> CrossPlaneLatencies {
         self.get_cross_plane_distances()
             .iter()
