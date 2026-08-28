@@ -25,7 +25,7 @@ impl Neighbors<Self> for WalkerDelta {
         if shell.full_connect {
             let cp = vec![
                 (
-                    (oidx + 1) % shell.norbits,
+                    (oidx + 1).rem_euclid(shell.norbits),
                     if oidx as usize != shell.norbits - 1 {
                         sidx
                     } else {
@@ -33,7 +33,7 @@ impl Neighbors<Self> for WalkerDelta {
                     },
                 ),
                 (
-                    (oidx - 1) % shell.norbits,
+                    (oidx as i64 - 1).rem_euclid(shell.norbits as i64) as usize,
                     if oidx != 0 {
                         sidx
                     } else {
